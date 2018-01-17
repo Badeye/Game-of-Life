@@ -13,6 +13,12 @@ height = 800
 screen = pygame.display.set_mode(res)
 clock = pygame.time.Clock()
 
+infoScreen = pygame.surface.Surface((width, height), pygame.SRCALPHA, 32)
+
+# font
+infoFont = pygame.font.SysFont('Menlo, Monaco, Lucida Console, Liberation Mono, DejaVu Sans Mono, Bitstream Vera Sans Mono, Courier New', 14)
+instructionFont = pygame.font.SysFont('Menlo, Monaco, Lucida Console, Liberation Mono, DejaVu Sans Mono, Bitstream Vera Sans Mono, Courier New', 14)
+
 
 # cells can either be dead or alive. They die/live depending on how many neighbours they have
 class Cell:
@@ -42,8 +48,6 @@ class Cell:
 
     # check the neighbouring cells to kill/revive this one accordingly
     def evolve(self):
-        #print("evolve me -- col: " + str(self.index[0]) + " row: " + str(self.index[1]))
-
         oldAliveState = self.alive
 
         # cylce through the 8 surrounding neighbours
@@ -53,7 +57,7 @@ class Cell:
             if 0 <= col < Field.countX:
                 for n in range(3):
                     row = (self.index[1] + n) - 1
-                    if 0 <= row < Field.countY:
+                    if 0 <= row < Field.countY and not (row == self.index[1] and col == self.index[0]):
                         # check the neighbour for deadness *kek*
                         if Field.oldCellRows[row][col].alive:
                             aliveFound += 1
@@ -77,6 +81,10 @@ class Cell:
         # register/log the change
         if oldAliveState != self.alive:
             self.previousAliveStates.append(oldAliveState)
+            if self.alive:
+                Field.cellsAlive += 1
+            else:
+                Field.cellsAlive -= 1
 
 
 # a field of cells, either dead or alive
@@ -85,9 +93,14 @@ class Field:
     oldCellRows = []
     countX = 100
     countY = 100
-    randomAliveChance = 0.04
+    randomAliveChance = 0.05
 
-    #update
+    # cell alive counters
+    cellsAlive = 0
+    oldCellsAlive = 0
+    stillEvolving = True
+
+    # update variables
     updateClock = 0
     updateDelay = 1    # delay in ticks --- 60 ticks = 1 sec
 
@@ -95,6 +108,8 @@ class Field:
     def fillRandom():
         Field.cellRows = []
         Field.oldCellRows = []
+        Field.cellsAlive = 0
+        Field.oldCellsAlive = 0
 
         cellWidth = width/Field.countX
         cellHeight = height/Field.countY
@@ -109,14 +124,34 @@ class Field:
                 # spawn a cell that is alive
                 if r <= Field.randomAliveChance:
                     Field.cellRows[row].append(Cell(True, x, y, col, row, cellWidth, cellHeight))
+                    Field.cellsAlive += 1
                 else:
                     Field.cellRows[row].append(Cell(False, x, y, col, row, cellWidth, cellHeight))
 
     @staticmethod
-    # draw the field by drawing all cells
+    # draw the field by drawing all cells and evolve them if needed
     def draw():
+        # evolve field check
+        evolve = False
+        Field.updateClock += 1
+        if Field.updateClock == Field.updateDelay:
+            evolve = True
+        if not 0 <= Field.updateClock <= Field.updateDelay:
+            Field.updateClock = 0
+
+        Field.oldCellsAlive = Field.cellsAlive
+
         for row in range(len(Field.cellRows)):
             for cell in Field.cellRows[row]:
+
+                # switch dead/alive depending on the amount of alive neighbours
+                if evolve:
+                    Field.oldCellRows = Field.cellRows
+                    cell.evolve()
+                    if Field.oldCellsAlive != Field.cellsAlive:
+                        Field.stillEvolving = True
+                    else:
+                        Field.stillEvolving = False
                 cell.draw()
 
     @staticmethod
@@ -145,17 +180,49 @@ class Field:
 
 # set up the Field by filling it with new, random cells
 Field.fillRandom()
-#print(Field.getAliveCount())
+
+
+# info box filled with content (text)
+class InfoBox:
+    width = 165
+    height = 105
+    backgroundColor = (0, 0, 0, 200)
+    textColor = (255, 255, 255)
+
+    textPaddingTop = 10
+
+    @staticmethod
+    def draw():
+        pygame.draw.rect(infoScreen, InfoBox.backgroundColor, (0, 0, InfoBox.width, InfoBox.height))
+
+        # instruction
+        instrText = instructionFont.render("SPACE to randomize", False, InfoBox.textColor)
+        infoScreen.blit(instrText, (InfoBox.textPaddingTop, InfoBox.textPaddingTop))
+
+        # alive count
+        infoText = infoFont.render("Alive: " + str(Field.cellsAlive), False, InfoBox.textColor)
+        infoScreen.blit(infoText, (InfoBox.textPaddingTop, InfoBox.textPaddingTop + 30))
+
+        # evolving
+        evolvingText = infoFont.render("Evolving: " + str(Field.stillEvolving), False, InfoBox.textColor)
+        infoScreen.blit(evolvingText, (InfoBox.textPaddingTop, InfoBox.textPaddingTop + 50))
+
+        # fps
+        fpsText = infoFont.render("FPS: " + str(int(clock.get_fps())), False, InfoBox.textColor)
+        infoScreen.blit(fpsText, (InfoBox.textPaddingTop, InfoBox.textPaddingTop + 70))
+
+        screen.blit(infoScreen, (0, 0))
 
 
 # game loop
 running = True
 while running:
 
-    # erase the
+    # erase the screen to prepare for the redraw
     screen.fill((0, 0, 0))
-    delay = clock.tick(60)
 
+    # set the frame rate
+    delay = clock.tick(120)
 
     for event in pygame.event.get():
         if event.type == QUIT:
@@ -165,17 +232,11 @@ while running:
                 Field.fillRandom()
                 Field.evolve()
 
-
-    # evolve field
-    Field.updateClock += 1
-    if Field.updateClock == Field.updateDelay:
-        Field.evolve()
-    if not 0 <= Field.updateClock <= Field.updateDelay:
-        Field.updateClock = 0
-
-
-    # draw field
+    # draw and evolve the field
     Field.draw()
+
+    # draw info boxes
+    InfoBox.draw()
 
     # pygame display update
     pygame.display.update()
